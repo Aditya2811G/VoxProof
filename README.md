@@ -2,7 +2,9 @@
 
 **Voice-defined contracts, code-verified AI work, and PayPal authorize-then-capture payments.**
 
-You tell VoxProof out loud what you need done with a messy supplier CSV ("Preserve all product IDs. Never invent missing prices."). An AI turns each sentence into a machine-checkable rule. PayPal puts the fee **on hold** (Orders v2, `intent: AUTHORIZE`). An AI worker plans the conversion, an **independent verifier written in plain code** checks the result against your rules, and the money is **captured only if every required check passes and you tap Accept**. Otherwise the hold is **voided** and you pay nothing.
+### ▶ [Watch the demo video](https://youtu.be/50Iq1lf3HP4)
+
+You tell VoxProof out loud what you need done with a messy supplier CSV ("Preserve all product IDs. Never invent missing prices."). Google Gemini turns each sentence into a machine-checkable rule. PayPal puts the fee **on hold** (Orders v2, `intent: AUTHORIZE`). An AI worker plans the conversion, an **independent verifier written in plain code** checks the result against your rules, and the money is **captured only if every required check passes and you tap Accept**. Otherwise the hold is **voided** and you pay nothing.
 
 > The AI doing the work can't declare itself successful, and voice can never move money.
 
