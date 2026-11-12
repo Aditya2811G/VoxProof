@@ -1,0 +1,697 @@
+{
+  "info": {
+    "name": "VoxProof API",
+    "description": "Say it. Prove it. Pay it.\n\nFolder 1 runs the whole VoxProof flow against your local server (start it with `python run.py`). Run it with the Collection Runner. For a fully automatic run, start the server with PAYPAL_MODE=mock, because real PayPal needs a buyer to approve in the browser.\n\nFolder 2 calls the PayPal sandbox REST APIs directly (authorize, then capture or void).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. VoxProof flow (run in order)",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/healthz"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('server is up', () => pm.expect(pm.response.code).to.equal(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/config"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const c = pm.response.json();",
+                  "pm.test('reports PayPal mode', () => pm.expect(['sandbox', 'mock']).to.include(c.paypal_mode));",
+                  "pm.collectionVariables.set('paypalMode', c.paypal_mode);",
+                  "console.log('PayPal mode:', c.paypal_mode, '| AI:', c.ai);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1. Upload the messy sample CSV",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/jobs",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "sample",
+                  "value": "1",
+                  "type": "text"
+                }
+              ]
+            },
+            "description": "Creates a job from the bundled messy supplier catalog. To upload your own file, change the form field to `file` (type File)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('job created', () => pm.expect(pm.response.code).to.equal(201));",
+                  "const job = pm.response.json().job;",
+                  "pm.test('15 rows parsed', () => pm.expect(job.row_count).to.equal(15));",
+                  "pm.collectionVariables.set('jobId', job.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Draft contract from the spoken request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/contract",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"request_text\": \"Convert this into my store's import format. Preserve all product IDs. Never invent missing prices.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "The AI maps columns and turns each sentence of the request into a check from the fixed library. In the app this text comes from the microphone."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('contract proposed', () => pm.expect(pm.response.code).to.equal(200));",
+                  "const job = pm.response.json().job;",
+                  "pm.test('state is CONTRACT_PROPOSED', () => pm.expect(job.state).to.equal('CONTRACT_PROPOSED'));",
+                  "const said = job.contract.checks.filter(c => c.origin === 'customer').map(c => c.type);",
+                  "pm.test('spoken sentences became checks', () => pm.expect(said).to.include('no_invented_values'));",
+                  "pm.test('price set by server', () => pm.expect(job.contract.price.amount).to.equal('5.00'));",
+                  "pm.collectionVariables.set('contractHash', job.contract_sha256);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Agree (customer tap)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/agree",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contract_sha256\": \"{{contractHash}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('agreed', () => pm.expect(pm.response.json().job.state).to.equal('AGREED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Create PayPal order (intent AUTHORIZE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/paypal/order",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Server calls PayPal Orders v2 with intent AUTHORIZE and custom_id = contract SHA-256."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('order created', () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.collectionVariables.set('orderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Authorize the order (mock mode; see description)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/paypal/authorize",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"order_id\": \"{{orderId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "With PAYPAL_MODE=mock this works directly. With real sandbox keys, PayPal requires the buyer to approve the order in the browser first; use the web app (or folder 2's approve link) for that step."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.collectionVariables.get('paypalMode') === 'sandbox' && pm.response.code !== 200) {",
+                  "  console.log('Sandbox mode: approve the order in the browser app first (buyer login), or run the server with PAYPAL_MODE=mock for this collection.');",
+                  "}",
+                  "pm.test('authorized: funds on hold', () => pm.expect(pm.response.json().job.state).to.equal('AUTHORIZED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Run the job with a simulated faulty AI worker",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/process",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulate_fault\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const job = pm.response.json().job;",
+                  "pm.test('verification fails', () => pm.expect(job.state).to.equal('VERIFIED_FAIL'));",
+                  "const report = job.attempts[job.attempts.length - 1].report;",
+                  "const priceCheck = report.checks.find(c => c.type === 'no_invented_values' && c.targets.includes('price'));",
+                  "pm.test('4 invented prices caught', () => pm.expect(priceCheck.failure_count).to.equal(4));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Try to release the payment by voice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/ask",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Release the payment now!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('voice cannot move money', () => pm.expect(pm.response.json().refused).to.equal(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Try to accept failed work (blocked)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/accept",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accept_nonce\": \"forged\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('capture refused', () => pm.expect(pm.response.code).to.equal(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Retry with verifier feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/process",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"simulate_fault\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const job = pm.response.json().job;",
+                  "pm.test('verification passes', () => pm.expect(job.state).to.equal('VERIFIED_PASS'));",
+                  "pm.collectionVariables.set('acceptNonce', job.accept_nonce);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Accept: re-verify and capture",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/accept",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accept_nonce\": \"{{acceptNonce}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const job = pm.response.json().job;",
+                  "pm.test('captured', () => pm.expect(job.state).to.equal('CAPTURED'));",
+                  "pm.test('has PayPal capture id', () => pm.expect(job.paypal.capture_id.length).to.be.above(3));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Download the verified store_import.csv",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/output.csv"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('delivered after capture', () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.test('store columns', () => pm.expect(pm.response.text()).to.include('sku,title,description,price,quantity,brand'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Evidence bundle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/jobs/{{jobId}}/evidence.json"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const e = pm.response.json();",
+                  "pm.test('bound to the agreed contract', () => pm.expect(e.contract_sha256).to.equal(pm.collectionVariables.get('contractHash')));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. PayPal sandbox direct (authorize, capture, void)",
+      "item": [
+        {
+          "name": "A. Get access token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{paypalBase}}/v1/oauth2/token",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                }
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{paypal_client_id}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{paypal_client_secret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Uses paypal_client_id / paypal_client_secret from the environment (sandbox app credentials)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('token received', () => pm.expect(pm.response.code).to.equal(200));",
+                  "pm.collectionVariables.set('paypalToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B. Create order (intent AUTHORIZE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{paypalBase}}/v2/checkout/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"intent\": \"AUTHORIZE\",\n  \"purchase_units\": [\n    {\n      \"reference_id\": \"postman-demo\",\n      \"custom_id\": \"contract-sha256-goes-here\",\n      \"description\": \"VoxProof verified catalog conversion\",\n      \"amount\": {\n        \"currency_code\": \"USD\",\n        \"value\": \"5.00\"\n      }\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Open the approve link from the console in a browser and approve with the sandbox buyer account before running C."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const o = pm.response.json();",
+                  "pm.test('order created', () => pm.expect(o.status).to.equal('CREATED'));",
+                  "pm.collectionVariables.set('ppOrderId', o.id);",
+                  "const approve = (o.links || []).find(l => l.rel === 'approve' || l.rel === 'payer-action');",
+                  "if (approve) console.log('Open this link, log in with your sandbox BUYER account, approve, then run step C:', approve.href);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "C. Authorize order (after buyer approval)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{paypalBase}}/v2/checkout/orders/{{ppOrderId}}/authorize",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const o = pm.response.json();",
+                  "const auth = o.purchase_units[0].payments.authorizations[0];",
+                  "pm.test('authorization created', () => pm.expect(auth.status).to.equal('CREATED'));",
+                  "pm.collectionVariables.set('ppAuthId', auth.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "D. Show authorization",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{paypalBase}}/v2/payments/authorizations/{{ppAuthId}}",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "E1. Void authorization (work rejected)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Prefer",
+                "value": "return=representation"
+              }
+            ],
+            "url": "{{paypalBase}}/v2/payments/authorizations/{{ppAuthId}}/void",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "E2. Capture authorization (work verified + accepted)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{paypalBase}}/v2/payments/authorizations/{{ppAuthId}}/capture",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"final_capture\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{paypalToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "jobId",
+      "value": ""
+    },
+    {
+      "key": "contractHash",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "acceptNonce",
+      "value": ""
+    },
+    {
+      "key": "paypalMode",
+      "value": ""
+    },
+    {
+      "key": "paypalToken",
+      "value": ""
+    },
+    {
+      "key": "ppOrderId",
+      "value": ""
+    },
+    {
+      "key": "ppAuthId",
+      "value": ""
+    }
+  ]
+}

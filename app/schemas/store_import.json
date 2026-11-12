@@ -1,0 +1,13 @@
+{
+  "id": "store_import_v1",
+  "name": "Store import format",
+  "description": "Generic product import format for a small online store.",
+  "columns": [
+    {"name": "sku", "type": "id", "required": true, "description": "Product identifier. Must be copied exactly from the supplier file."},
+    {"name": "title", "type": "text", "required": true, "description": "Product name shown to shoppers."},
+    {"name": "description", "type": "text", "required": false, "description": "Short product description."},
+    {"name": "price", "type": "price", "required": true, "description": "Selling price in USD with 2 decimals, e.g. 12.50."},
+    {"name": "quantity", "type": "integer", "required": false, "description": "Units in stock, whole number."},
+    {"name": "brand", "type": "text", "required": false, "description": "Brand or manufacturer."}
+  ]
+}

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: voxproof
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker: per-job locks live in memory. Threads handle concurrent requests.
+    startCommand: gunicorn wsgi:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      # Set ONE AI key. GEMINI_API_KEY is free from aistudio.google.com.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DATA_DIR
+        value: /tmp/voxproof-data

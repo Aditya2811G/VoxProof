@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VoxProof · Say it. Prove it. Pay it.</title>
+  <meta name="description" content="Voice-defined contracts, code-verified AI work, PayPal authorize-then-capture payments.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236d5efc'/%3E%3Crect x='5' y='10' width='3' height='7' rx='1.5' fill='white'/%3E%3Crect x='10.5' y='6' width='3' height='12' rx='1.5' fill='white'/%3E%3Crect x='16' y='9' width='3' height='8' rx='1.5' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="name">VoxProof</span>
+        <span class="tagline">Verified AI work · PayPal authorize-then-capture</span>
+      </div>
+      <div class="modes">
+        <span class="pill" id="mode-paypal">PayPal</span>
+        <span class="pill" id="mode-ai">AI</span>
+        <button class="ghost small" id="voice-toggle" aria-pressed="true">Voice on</button>
+      </div>
+    </div>
+    <div class="hero-inner">
+      <h1>Say it. <span class="grad">Prove it.</span> Pay it.</h1>
+      <p class="hero-sub">Describe the job out loud. AI turns your words into checks, plain code verifies the result, and PayPal only captures the payment when the proof passes.</p>
+      <ol class="hero-steps" aria-label="How it works">
+        <li><i>1</i>Voice contract</li>
+        <li><i>2</i>PayPal hold</li>
+        <li><i>3</i>Code verifies</li>
+        <li><i>4</i>Capture or void</li>
+      </ol>
+    </div>
+  </header>
+
+  <div id="warnings" class="warnings" hidden></div>
+
+  <main class="layout">
+    <aside class="rail" aria-label="Job progress">
+      <ol class="states" id="states">
+        <li data-step="upload">Upload</li>
+        <li data-step="contract">Contract drafted</li>
+        <li data-step="agreed">Agreed (tap)</li>
+        <li data-step="authorized">Payment on hold</li>
+        <li data-step="verified">Verified by code</li>
+        <li data-step="settled">Settled</li>
+      </ol>
+      <div class="trust">
+        <h3>Who can move money?</h3>
+        <ul>
+          <li><span class="dot ai"></span>AI and voice: <b>never</b></li>
+          <li><span class="dot gate"></span>Code verifier + your tap: <b>only together</b></li>
+        </ul>
+      </div>
+      <div class="ledger">
+        <h3>Audit trail</h3>
+        <ol id="events"><li class="muted">Nothing yet.</li></ol>
+      </div>
+    </aside>
+
+    <section class="flow">
+      <div class="voicebar" id="voicebar" aria-live="polite">
+        <div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <p id="narration">Upload a supplier CSV to begin, or try the sample file.</p>
+        <button class="ghost small" id="replay" title="Say it again">Replay</button>
+      </div>
+
+      <!-- 1. Upload -->
+      <article class="card" id="card-upload">
+        <header><span class="num">1</span><h2>Upload the supplier file</h2></header>
+        <div class="body">
+          <label class="drop" id="drop">
+            <input type="file" id="file" accept=".csv,text/csv,.txt">
+            <strong>Drop a CSV here</strong> or click to choose
+            <small>Up to 2 MB. Messy is fine: that's the point.</small>
+          </label>
+          <div class="row">
+            <button class="secondary" id="use-sample">Use the messy sample file</button>
+            <a class="link" href="/api/sample">Download sample</a>
+          </div>
+          <div id="upload-result"></div>
+        </div>
+      </article>
+
+      <!-- 2. Speak -->
+      <article class="card" id="card-request" hidden>
+        <header><span class="num">2</span><h2>Say what you need</h2></header>
+        <div class="body">
+          <div class="speak">
+            <button class="mic" id="mic-request" aria-label="Start speaking">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+            </button>
+            <div class="speak-text">
+              <textarea id="request-text" rows="3" placeholder="Tap the mic and talk, or type here."></textarea>
+              <button class="chip" id="example-request">Try: "Convert this into my store's import format. Preserve all product IDs. Never invent missing prices."</button>
+            </div>
+          </div>
+          <div class="row end">
+            <span class="muted small" id="mic-status"></span>
+            <button class="primary" id="draft">Draft the contract</button>
+          </div>
+        </div>
+      </article>
+
+      <!-- 3. Contract -->
+      <article class="card" id="card-contract" hidden>
+        <header><span class="num">3</span><h2>Your contract</h2><span class="hash" id="contract-hash"></span></header>
+        <div class="body" id="contract-body"></div>
+      </article>
+
+      <!-- 4. Pay -->
+      <article class="card" id="card-pay" hidden>
+        <header><span class="num">4</span><h2>Authorize the payment</h2></header>
+        <div class="body">
+          <p class="lead" id="pay-lead"></p>
+          <div id="paypal-buttons"></div>
+          <div id="mock-pay" hidden>
+            <button class="primary" id="mock-approve">Approve hold in mock PayPal</button>
+            <p class="muted small">Mock mode: no PayPal keys set. Add sandbox keys to use real PayPal.</p>
+          </div>
+          <div id="pay-status"></div>
+        </div>
+      </article>
+
+      <!-- 5. Run -->
+      <article class="card" id="card-run" hidden>
+        <header><span class="num">5</span><h2>Run the job</h2></header>
+        <div class="body">
+          <p class="muted">The AI plans the conversion as a list of allowed operations. The server runs them, then a separate verifier (plain code, no AI) checks the result against your contract.</p>
+          <label class="toggle"><input type="checkbox" id="simulate-fault"> <span>Simulate a faulty AI worker (demo): it "helpfully" fills in missing prices</span></label>
+          <div class="row end"><button class="primary" id="run">Run the job</button></div>
+          <div id="attempts"></div>
+        </div>
+      </article>
+
+      <!-- 6. Review -->
+      <article class="card" id="card-review" hidden>
+        <header><span class="num">6</span><h2>Review the evidence</h2></header>
+        <div class="body">
+          <div id="verdict"></div>
+          <div id="checks"></div>
+          <div class="ask">
+            <button class="mic small" id="mic-ask" aria-label="Ask by voice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+            </button>
+            <input id="ask-text" placeholder='Ask about the results, e.g. "What happened on row 7?"'>
+            <button class="secondary" id="ask">Ask</button>
+          </div>
+          <div id="answer"></div>
+          <h3 class="sub">Result grid <span class="powered">powered by AG Grid</span></h3>
+          <div class="grid-toolbar" id="grid-toolbar">
+            <div class="seg" id="grid-filters" role="group" aria-label="Filter rows">
+              <button data-filter="all" class="on">All <b id="n-all"></b></button>
+              <button data-filter="failed">Failed <b id="n-failed"></b></button>
+              <button data-filter="attention">Needs attention <b id="n-attention"></b></button>
+              <button data-filter="changed">Changed <b id="n-changed"></b></button>
+            </div>
+            <input id="grid-search" type="search" placeholder="Search rows…" aria-label="Search rows">
+            <label class="switch"><input type="checkbox" id="grid-compare"> Compare with source</label>
+          </div>
+          <p class="legend"><span class="sw changed"></span>changed from source (hover for the original) <span class="sw bad"></span>failed a check <span class="sw warn"></span>needs your attention</p>
+          <div id="result-grid" class="grid-box"></div>
+          <p class="muted small" id="grid-note"></p>
+          <div class="actions" id="review-actions"></div>
+        </div>
+      </article>
+
+      <!-- 7. Receipt -->
+      <article class="card receipt" id="card-receipt" hidden>
+        <header><span class="num">7</span><h2>Receipt</h2></header>
+        <div class="body" id="receipt-body"></div>
+      </article>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <!-- AG Grid Community (MIT), hackathon sponsor: powers the input preview and the evidence grid -->
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@35.3.1/dist/ag-grid-community.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
